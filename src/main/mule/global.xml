@@ -15,7 +15,7 @@ http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/fil
 		<salesforce:cached-basic-connection username="medhavi.goyal@metacube.com" password="medhavi94" securityToken="VOZ1EQc5ofXMWQNCkBRoXigED" />
 	</salesforce:sfdc-config>
 	<s3:config name="Amazon_S3_Configuration" doc:name="Amazon S3 Configuration" doc:id="b6c8e279-fb90-4a7a-840c-ada9d6f228f3" >
-		<s3:basic-connection accessKey="AKIAIPU3MVVQFYM4JADQ" secretKey="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" region="AP_SOUTH_1" />
+		<s3:basic-connection accessKey="" secretKey="" region="" />
 	</s3:config>
 	<db:config name="Database_Config" doc:name="Database Config" doc:id="2a346f09-3584-4217-8a13-259a29dc4b57" >
 		<db:my-sql-connection host="localhost" port="3306" user="root" password="root"/>
