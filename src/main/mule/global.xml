@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:s3="http://www.mulesoft.org/schema/mule/s3"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<http:listener-config name="HTTP_Listener_config1" doc:name="HTTP Listener config" doc:id="de7c5c4f-ec22-44d5-a30a-22007fa41eeb" basePath="/api" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="977dfab5-f332-48db-b69c-3a1ca0ae6ead" >
+		<salesforce:cached-basic-connection username="medhavi.goyal@metacube.com" password="medhavi94" securityToken="VOZ1EQc5ofXMWQNCkBRoXigED" />
+	</salesforce:sfdc-config>
+	<s3:config name="Amazon_S3_Configuration" doc:name="Amazon S3 Configuration" doc:id="b6c8e279-fb90-4a7a-840c-ada9d6f228f3" >
+		<s3:basic-connection accessKey="AKIAIPU3MVVQFYM4JADQ" secretKey="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" region="AP_SOUTH_1" />
+	</s3:config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="2a346f09-3584-4217-8a13-259a29dc4b57" >
+		<db:my-sql-connection host="localhost" port="3306" user="root" password="root"/>
+	</db:config>
+	<configuration-properties doc:name="Configuration properties" doc:id="175b1c24-d197-4f45-97d1-cdf94bf2d0ba" file="appProperties.yaml" />
+	<file:config name="File_Config" doc:name="File Config" doc:id="f549651b-3099-4a31-b6a8-fba3160b9287" />
+	
+</mule>

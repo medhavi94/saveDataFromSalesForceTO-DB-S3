@@ -1,0 +1,10 @@
+[
+	{
+		id:1,
+		external_Id__c:null
+	},
+	{
+		id:2,
+		external_Id__c:1
+	}
+]

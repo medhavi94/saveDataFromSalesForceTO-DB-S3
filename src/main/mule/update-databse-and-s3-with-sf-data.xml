@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:s3="http://www.mulesoft.org/schema/mule/s3" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/s3 http://www.mulesoft.org/schema/mule/s3/current/mule-s3.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	
+	
+	
+	
+	<flow name="saveDataStarter" doc:id="e51da086-4444-4887-8d0b-63cb0627c48d" >
+		<http:listener doc:name="Listener" doc:id="7494131b-d750-4c5a-8b18-9de2b12a1c1a" config-ref="HTTP_Listener_config1" path="/saveData"/>
+		<flow-ref doc:name="Initial Loader" doc:id="fdb15e67-6368-47b2-8eed-20141f842eeb" name="InitialLoader"/>
+		<flow-ref doc:name="Delta Upload" doc:id="67f54dfa-0e96-4340-932f-6bcaf4aa9be2" name="DeltaUpload"/>
+	</flow>
+	
+	<sub-flow name="InitialLoader" doc:id="9a21434c-92f6-4d21-a81d-09971efe4a9a" >
+		<salesforce:query doc:name="Query" doc:id="3c163b5a-ed34-46dc-9adc-5a1ab36154c9" config-ref="Salesforce_Config">
+			<salesforce:salesforce-query>SELECT  Id,AccountNumber,Name,Type,LastModifiedById,rowModifiedById__c from account</salesforce:salesforce-query>
+		</salesforce:query>
+		<ee:transform doc:name="Transform Message" doc:id="d3218078-cb42-4c17-b8f3-0f8b715e8142">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload map (item,index) -> {
+
+	"AccountId" : item.Id,
+	"Name" : item.Name,
+	"AccountNumber" : item.AccountNumber,
+	"Type": item.Type,
+	"LastModifiedById" : item.LastModifiedById,
+	"RowModifiedById" : item.rowModifiedById__c
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<set-variable value="#[now() as String {format: 'yyyy-MM-dd HH:mm:ss'}]" doc:name="Set current time" doc:id="77d3aeef-9406-4db5-b683-4e6d1ca8ad92" variableName="currentTime" />
+		<logger level="INFO" doc:name="Logger" doc:id="40398f33-c95a-4556-ab2f-16de07a7d1ff" message="#[payload]" />
+		<scatter-gather doc:name="Scatter-Gather" doc:id="54b8c8fd-e232-432b-9d11-033e7982c6f8">
+			<route>
+				<flow-ref doc:name="Insert in DB" doc:id="1a2e9b1e-c2b7-4543-a6dd-5b0548294245" name="InsertDataInDB" />
+			</route>
+			<route>
+				<flow-ref doc:name="Insert in S3" doc:id="7fccf941-68af-45f3-b97e-9cf60f35e77a" name="InsertDataInS3" />
+			</route>
+		</scatter-gather>
+		<flow-ref doc:name="update SF Metadata" doc:id="8f6e77b1-947f-4149-8dc0-dd9cd0348bfe" name="update-SF-Metadata"/>
+		<logger level="INFO" doc:name="Logger" doc:id="06ea9356-0f2e-4cdd-8ee4-09a41a6dd4de" message='"Data inserted in Database and S3"' />
+	</sub-flow>
+	
+	<flow name="DeltaUpload" doc:id="a85f7b3c-ba4a-433a-a30b-d0150af42dd4" initialState="started">
+		<scheduler doc:name="Scheduler" doc:id="6a6fd6f5-76b5-4c89-a855-ac0a551eb417" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="1" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<salesforce:query doc:name="Query" doc:id="a0fb8e8b-20c4-4990-9144-ec7851c05d53" config-ref="Salesforce_Config" target="sfData">
+			<salesforce:salesforce-query>select id, external_id__c,AccountNumber,Name,Type,LastModifiedById,rowModifiedById__c from Account
+where (RowModifiedByName__c in (null,'') OR RowModifiedByName__C != 'iuser')</salesforce:salesforce-query>
+		</salesforce:query>
+		<choice doc:name="Choice" doc:id="3b58dfee-617d-48c6-b513-e5f905521cf8" >
+			<when expression="#[sizeOf(vars.sfData) != 0]">
+				<ee:transform doc:name="Transform Message" doc:id="2a354961-1ef2-48bc-bdaa-9711a8717188">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	newRecords : vars.sfData map {
+		"AccountId" : $.Id,
+		"Name" : $.Name,
+		"AccountNumber" : $.AccountNumber,
+		"Type": $.Type,
+		"LastModifiedById" : $.LastModifiedById,
+		"RowModifiedById" : $.rowModifiedById__c,
+		"externalId": $.external_Id__c
+	} filter $.externalId == null,
+	updatedRecords : vars.sfData map {
+		"AccountId" : $.Id,
+		"Name" : $.Name,
+		"AccountNumber" : $.AccountNumber,
+		"Type": $.Type,
+		"LastModifiedById" : $.LastModifiedById,
+		"RowModifiedById" : $.rowModifiedById__c,
+		"externalId": $.external_Id__c
+	} filter $.externalId != null
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+				<set-variable value="#[now() as String {'format':'yyyy-MM-dd HH:mm:ss'}]" doc:name="Set current time" doc:id="b68559be-5a40-4abb-be82-8cb42d88f768" variableName="currentTime" />
+				<scatter-gather doc:name="Scatter-Gather" doc:id="90098375-e33a-4a1f-9d87-a84a10a86321">
+			<route>
+				<set-payload value="#[vars.sfData]" doc:name="Set Payload as sfData" doc:id="75bc7999-02de-4b3e-b73c-a95dce8846bc" />
+				<flow-ref doc:name="Insert Data in S3" doc:id="02e8349e-6c9e-49e6-a4b9-b9a164e8c15a" name="InsertDataInS3" targetValue="#[vars.sfData]" />
+			</route>
+			<route>
+				<choice doc:name="Choice" doc:id="cfc1345b-f387-49bb-8df8-27122a3bbf1b" >
+							<when expression="#[sizeOf(payload.newRecords) != 0]">
+								<set-payload value="#[payload.newRecords]" doc:name="Set Payload as newRecords" doc:id="275d2c73-9bf9-44d8-9b9b-32b3f0daa804" />
+								<flow-ref doc:name="Insert New Data in DB" doc:id="2899d959-01a2-45d3-8489-6e98d88c4fdd" name="InsertDataInDB" targetValue="#[payload.newRecords]" />
+							</when>
+							<otherwise >
+								<logger level="INFO" doc:name="Logger" doc:id="88cc1d63-0a65-49c5-82bc-61dc65a5edb3" message="No New Account Record Found in Salesforce"/>
+							</otherwise>
+						</choice>
+			</route>
+			<route>
+				<choice doc:name="Choice" doc:id="cf53ac2f-ac19-4cd7-8ca1-288de347ced5" >
+							<when expression="#[sizeOf(payload.updatedRecords) != 0]">
+								<set-payload value="#[payload.updatedRecords]" doc:name="Set Payload as updated records" doc:id="11b86505-b79e-4f5a-a77d-c38bc1d12282" />
+								<flow-ref doc:name="update existing data in db" doc:id="fa757a4e-f3cf-4353-b1dc-25e73128b3e3" targetValue="#[payload.updatedRecords]" name="updateDataInDB" />
+							</when>
+							<otherwise >
+								<logger level="INFO" doc:name="Logger" doc:id="44f09a5c-007e-4ea5-89c1-5e7bff624216" message="No Updated Account Record Found in Salesforce"/>
+							</otherwise>
+						</choice>
+			</route>
+		</scatter-gather>
+				<flow-ref doc:name="update SF metadata" doc:id="9bfde283-5533-42ed-b3ec-c58692522b32" name="update-SF-Metadata" />
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Logger" doc:id="897c12d4-0d56-4ab8-876c-ca443f212f21" message="No New or Updated Records found in salesforce account object"/>
+			</otherwise>
+		</choice>
+	</flow>
+	
+	<sub-flow name="InsertDataInDB" doc:id="323e11a4-e6a4-4a26-b2a4-9c28b880619c" >
+		<db:bulk-insert doc:name="Bulk insert" doc:id="252bb8f9-65b3-4044-9210-70dde52b47aa" config-ref="Database_Config">
+			<db:bulk-input-parameters ><![CDATA[#[payload map ((item) -> item ++ {curTime: now() as String {'format':'yyyy-MM-dd HH:mm:ss'}})]]]></db:bulk-input-parameters>
+			<db:sql >Insert into schema1.account 
+(AccountId,Name,AccountNumber,Type,LastmodifiedById,RowModifiedById,LastModifiedTimeStamp) 
+Values
+(:AccountId,
+:Name,
+:AccountNumber,
+:Type,
+:LastModifiedById,
+:RowModifiedById,
+:curTime
+)</db:sql>
+		</db:bulk-insert>
+	</sub-flow>
+	<sub-flow name="updateDataInDB" doc:id="89ec7b52-d530-4944-ba02-3f1bb7a6775e" >
+		<db:bulk-update doc:name="Bulk update" doc:id="134d7da4-601e-498d-9696-00ba5b56a47c" config-ref="Database_Config">
+			<db:bulk-input-parameters ><![CDATA[#[payload map ((item) -> item ++ {curTime: now() as String {'format':'yyyy-MM-dd HH:mm:ss'}})]]]></db:bulk-input-parameters>
+			<db:sql >Update schema1.account SET 
+AccountId = :AccountId,
+Name = :Name,
+AccountNumber = :AccountNumber,
+Type = :Type,
+LastmodifiedById = :LastModifiedById,
+RowModifiedById = :RowModifiedById,
+LastModifiedTimeStamp = :curTime
+where Id =:externalId</db:sql>
+		</db:bulk-update>
+	</sub-flow>
+	<sub-flow name="InsertDataInS3" doc:id="bd39c54a-428f-4609-8467-60626526c4fe" >
+		<ee:transform doc:name="Transform Message" doc:id="53f82138-2e41-4267-9a9c-11c87353726f" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/csv
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<s3:create-object doc:name="Create object" doc:id="9b41f942-b472-4c11-8ec3-b403a795e784" config-ref="Amazon_S3_Configuration" bucketName="accounts-data-files" key="#[(now() as String {format: 'yyyy-MM-dd'}) ++ &quot;/&quot; ++ (now() as String {format: 'HH-mm-ss'}) ++ &quot;/AccountsData.csv&quot;]" acl="PUBLIC_READ_WRITE" contentType="text/csv">
+			<s3:user-metadatas />
+		</s3:create-object>
+		<ee:transform doc:name="Transform Message" doc:id="8e8864f8-5156-46e4-b12e-a8ec667645b1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+	
+	
+	<sub-flow name="update-SF-Metadata" doc:id="31f9af03-896f-4839-a9d0-61f541c28e8c" >
+		<db:select doc:name="Select" doc:id="8cbf4835-94e8-469a-a1d5-227bca73acd8" config-ref="Database_Config" target="dbData" queryTimeoutUnit="DAYS">
+			<db:sql >Select id, AccountId from schema1.account Where LastModifiedTimeStamp &gt;= :currentTime</db:sql>
+			<db:input-parameters ><![CDATA[#[{'currentTime' : vars.currentTime}]]]></db:input-parameters>
+		</db:select>
+		<salesforce:query doc:name="Query" doc:id="f0e6924f-6d42-4510-b6fa-542f65128155" config-ref="Salesforce_Config" target="userData">
+			<salesforce:salesforce-query >select id,alias from user where name ='Integration user' and alias ='iuser'</salesforce:salesforce-query>
+		</salesforce:query>
+		<ee:transform doc:name="Transform Message" doc:id="fe2b100e-f984-4ad7-bd6b-00f5e323b662" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+vars.dbData map ( dbDatum , indexOfDbDatum ) -> {
+	Id: dbDatum.AccountId,
+	external_Id__c: dbDatum.id,
+	//rowModifiedTimestamp__c: now() as Date ,
+	rowModifiedByName__c: vars.userData[0].Alias,
+	rowModifiedById__c: vars.userData[0].Id,
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="17ec4189-621c-4b7c-9246-a95f3d5f24e9" message='"Data is :- " +  #[payload]'/>
+		<salesforce:update type="Account" doc:name="Update" doc:id="3852c299-56f9-49cd-b91d-8b61fc09b090" config-ref="Salesforce_Config"/>
+		<ee:transform doc:name="Transform Message" doc:id="a3d77a6f-40a6-4ab0-b93d-4408b72a07c1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</sub-flow>
+</mule>
